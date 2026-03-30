@@ -1,179 +1,206 @@
+"""
+PawPal+ System: Core logic layer for pet care management.
+Implements Owner, Pet, Task, and Scheduler classes with
+sorting, filtering, recurring tasks, and conflict detection.
+"""
+from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
 from datetime import date, datetime, timedelta
-
-
-@dataclass
-class Pet:
-    name: str
-    species: str
-    age: Optional[int] = None
-    weight: Optional[float] = None
-    needs: List[str] = field(default_factory=list)
-    owner: Optional['Owner'] = None
-
-    def add_need(self, need: str) -> None:
-        if need not in self.needs:
-            self.needs.append(need)
-
-    def remove_need(self, need: str) -> None:
-        if need in self.needs:
-            self.needs.remove(need)
-
-    def get_care_requirements(self) -> List[str]:
-        return self.needs.copy()
-
-    def describe(self) -> str:
-        desc = f"{self.name} is a {self.species}"
-        if self.age:
-            desc += f" aged {self.age}"
-        if self.weight:
-            desc += f" weighing {self.weight} kg"
-        return desc
+from typing import List, Optional, Dict
 
 
 @dataclass
 class Task:
+    """Represents a single pet care activity."""
     title: str
-    description: Optional[str] = None
-    duration_minutes: int
-    priority: str
-    category: str
-    pet: Pet
-    due_time: Optional[datetime] = None
-    is_recurring: bool = False
-    status: str = "pending"
+    time: str  # "HH:MM" format
+    pet_name: str
+    description: str = ""
+    frequency: str = "once"  # "once", "daily", "weekly"
+    duration_minutes: int = 30
+    priority: str = "medium"  # "low", "medium", "high"
+    category: str = "general"
+    is_complete: bool = False
+    due_date: Optional[date] = None
 
-    def compute_score(self) -> float:
-        priority_scores = {"low": 1, "medium": 2, "high": 3}
-        score = priority_scores.get(self.priority, 1)
-        now = datetime.now()
-        if self.is_overdue(now):
-            score += 1
-        if self.due_time:
-            hours_until_due = (self.due_time - now).total_seconds() / 3600
-            if hours_until_due > 0:
-                score += max(0, 10 - hours_until_due)  # bonus for tasks due soon
-        return score
+    def mark_complete(self) -> Optional["Task"]:
+        """Mark task complete and return next occurrence for recurring tasks."""
+        self.is_complete = True
+        if self.frequency == "daily":
+            next_due = (self.due_date or date.today()) + timedelta(days=1)
+            return Task(
+                title=self.title,
+                time=self.time,
+                pet_name=self.pet_name,
+                description=self.description,
+                frequency=self.frequency,
+                duration_minutes=self.duration_minutes,
+                priority=self.priority,
+                category=self.category,
+                is_complete=False,
+                due_date=next_due,
+            )
+        elif self.frequency == "weekly":
+            next_due = (self.due_date or date.today()) + timedelta(weeks=1)
+            return Task(
+                title=self.title,
+                time=self.time,
+                pet_name=self.pet_name,
+                description=self.description,
+                frequency=self.frequency,
+                duration_minutes=self.duration_minutes,
+                priority=self.priority,
+                category=self.category,
+                is_complete=False,
+                due_date=next_due,
+            )
+        return None
 
-    def mark_complete(self) -> None:
-        self.status = "completed"
-
-    def is_overdue(self, now: datetime) -> bool:
-        if self.due_time:
-            return now > self.due_time
-        return False
-
-    def estimate_end(self, start: datetime) -> datetime:
-        return start + timedelta(minutes=self.duration_minutes)
+    def __str__(self) -> str:
+        """Return readable string representation of the task."""
+        status = "✓" if self.is_complete else "○"
+        return f"[{status}] {self.time} - {self.title} ({self.pet_name}) [{self.priority}]"
 
 
 @dataclass
-class ScheduledItem:
-    task: Task
-    start_time: datetime
-    end_time: datetime
-    assigned_owner: 'Owner'
-    notes: Optional[str] = None
+class Pet:
+    """Stores pet details and a list of tasks."""
+    name: str
+    species: str
+    breed: str = ""
+    age: int = 0
+    tasks: List[Task] = field(default_factory=list)
 
-    def duration(self) -> int:
-        return int((self.end_time - self.start_time).total_seconds() / 60)
+    def add_task(self, task: Task) -> None:
+        """Add a task to this pet's task list."""
+        self.tasks.append(task)
 
-    def overlaps(self, other: 'ScheduledItem') -> bool:
-        return not (self.end_time <= other.start_time or self.start_time >= other.end_time)
+    def remove_task(self, task: Task) -> None:
+        """Remove a task from this pet's task list."""
+        if task in self.tasks:
+            self.tasks.remove(task)
 
-    def to_dict(self) -> Dict:
-        return {
-            "task_title": self.task.title,
-            "start_time": self.start_time.isoformat(),
-            "end_time": self.end_time.isoformat(),
-            "assigned_owner": self.assigned_owner.name,
-            "notes": self.notes
-        }
+    def get_pending_tasks(self) -> List[Task]:
+        """Return only incomplete tasks for this pet."""
+        return [t for t in self.tasks if not t.is_complete]
+
+    def __str__(self) -> str:
+        """Return readable string of pet info."""
+        return f"{self.name} ({self.species}, {self.breed}, age {self.age})"
 
 
 class Owner:
-    def __init__(self, name: str, email: Optional[str] = None, preferences: Optional[Dict] = None):
+    """Manages multiple pets and provides access to all their tasks."""
+
+    def __init__(self, name: str, email: str = "", preferences: Optional[Dict] = None):
+        """Initialize owner with name, email, and optional preferences."""
         self.name = name
         self.email = email
         self.preferences = preferences or {}
         self.pets: List[Pet] = []
 
     def add_pet(self, pet: Pet) -> None:
-        if pet not in self.pets:
-            self.pets.append(pet)
-            pet.owner = self
+        """Add a pet to the owner's list."""
+        self.pets.append(pet)
 
     def remove_pet(self, pet: Pet) -> None:
+        """Remove a pet from the owner's list."""
         if pet in self.pets:
             self.pets.remove(pet)
-            pet.owner = None
 
-    def get_daily_availability(self, date: date) -> int:
-        return self.preferences.get('daily_hours', 8) * 60  # minutes
+    def get_all_tasks(self) -> List[Task]:
+        """Return all tasks across all pets."""
+        tasks = []
+        for pet in self.pets:
+            tasks.extend(pet.tasks)
+        return tasks
 
-    def owns(self, pet: Pet) -> bool:
-        return pet in self.pets
+    def get_pet_by_name(self, name: str) -> Optional[Pet]:
+        """Find and return a pet by name."""
+        for pet in self.pets:
+            if pet.name.lower() == name.lower():
+                return pet
+        return None
+
+    def __str__(self) -> str:
+        """Return readable string of owner info."""
+        return f"Owner: {self.name} ({len(self.pets)} pets)"
 
 
 class Scheduler:
+    """The brain that retrieves, organizes, and manages tasks across pets."""
+
     def __init__(self, owner: Owner):
+        """Initialize the scheduler with an owner."""
         self.owner = owner
-        self.pets = owner.pets.copy()
-        self.tasks: List[Task] = []
-        self.schedule: List[ScheduledItem] = []
-        self.constraints: Dict = {}
 
-    def add_task(self, task: Task) -> None:
-        self.tasks.append(task)
+    def get_all_tasks(self) -> List[Task]:
+        """Retrieve all tasks from the owner's pets."""
+        return self.owner.get_all_tasks()
 
-    def remove_task(self, task: Task) -> None:
-        if task in self.tasks:
-            self.tasks.remove(task)
+    def sort_by_time(self, tasks: Optional[List[Task]] = None) -> List[Task]:
+        """Sort tasks chronologically by their HH:MM time string."""
+        task_list = tasks if tasks is not None else self.get_all_tasks()
+        return sorted(task_list, key=lambda t: t.time)
 
-    def build_daily_schedule(self, date: date) -> List[ScheduledItem]:
-        available_minutes = self.owner.get_daily_availability(date)
-        sorted_tasks = sorted(self.tasks, key=lambda t: t.compute_score(), reverse=True)
-        current_time = datetime.combine(date, datetime.min.time()) + timedelta(hours=8)  # start at 8am
-        schedule = []
-        for task in sorted_tasks:
-            if task.status != "pending":
-                continue
-            if task.duration_minutes > available_minutes:
-                continue
-            proposed_start = current_time
-            proposed_end = proposed_start + timedelta(minutes=task.duration_minutes)
-            # Check for pet overlap: ensure no other task for the same pet overlaps
-            conflict = any(
-                item for item in schedule
-                if item.task.pet == task.pet and
-                not (item.end_time <= proposed_start or item.start_time >= proposed_end)
-            )
-            if conflict:
-                continue  # skip this task to avoid pet overlap
-            item = ScheduledItem(task, proposed_start, proposed_end, self.owner)
-            schedule.append(item)
-            current_time = proposed_end
-            available_minutes -= task.duration_minutes
-        self.schedule = schedule
-        return schedule
+    def filter_by_pet(self, pet_name: str) -> List[Task]:
+        """Filter tasks by pet name (case-insensitive)."""
+        return [t for t in self.get_all_tasks() if t.pet_name.lower() == pet_name.lower()]
 
-    def score_task(self, task: Task) -> float:
-        return task.compute_score()
+    def filter_by_status(self, completed: bool) -> List[Task]:
+        """Filter tasks by completion status."""
+        return [t for t in self.get_all_tasks() if t.is_complete == completed]
 
-    def explain_plan(self) -> str:
-        explanation = "Daily schedule explanation:\n"
-        for item in self.schedule:
-            explanation += f"- {item.task.title} at {item.start_time.strftime('%H:%M')} (priority: {item.task.priority})\n"
-        return explanation
+    def filter_by_priority(self, priority: str) -> List[Task]:
+        """Filter tasks by priority level (low, medium, high)."""
+        return [t for t in self.get_all_tasks() if t.priority.lower() == priority.lower()]
 
-    def get_conflicts(self) -> List[ScheduledItem]:
-        conflicts = []
-        for i, item1 in enumerate(self.schedule):
-            for item2 in self.schedule[i+1:]:
-                if item1.overlaps(item2):
-                    conflicts.extend([item1, item2])
-        return conflicts
+    def detect_conflicts(self, tasks: Optional[List[Task]] = None) -> List[str]:
+        """Detect tasks scheduled at the same time and return warning messages."""
+        task_list = tasks if tasks is not None else self.get_all_tasks()
+        pending = [t for t in task_list if not t.is_complete]
+        warnings = []
+        seen: Dict[str, Task] = {}
+        for task in pending:
+            key = task.time
+            if key in seen:
+                other = seen[key]
+                warnings.append(
+                    f"⚠ Conflict at {task.time}: '{task.title}' ({task.pet_name}) "
+                    f"clashes with '{other.title}' ({other.pet_name})"
+                )
+            else:
+                seen[key] = task
+        return warnings
 
-    def clear_schedule(self) -> None:
-        self.schedule = []
+    def mark_task_complete(self, task: Task) -> Optional[Task]:
+        """Mark a task complete, auto-schedule next if recurring."""
+        next_task = task.mark_complete()
+        if next_task is not None:
+            pet = self.owner.get_pet_by_name(task.pet_name)
+            if pet:
+                pet.add_task(next_task)
+        return next_task
+
+    def get_todays_schedule(self) -> List[Task]:
+        """Return all pending tasks sorted by time for today's schedule."""
+        today = date.today()
+        tasks = self.get_all_tasks()
+        todays = [
+            t for t in tasks
+            if not t.is_complete and (t.due_date is None or t.due_date == today)
+        ]
+        return self.sort_by_time(todays)
+
+    def print_schedule(self, tasks: Optional[List[Task]] = None) -> None:
+        """Print a formatted schedule to the terminal."""
+        schedule = tasks if tasks is not None else self.get_todays_schedule()
+        print("=" * 50)
+        print("         PawPal+ Today's Schedule")
+        print("=" * 50)
+        if not schedule:
+            print("  No tasks scheduled for today.")
+        else:
+            for task in schedule:
+                print(f"  {task}")
+        print("=" * 50)
