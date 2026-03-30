@@ -5,11 +5,23 @@
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+
+Pet: A dataclass representing a pet's basic information (name, species, age, weight) and care needs, with methods to add/remove needs, retrieve care requirements, and generate a descriptive summary.
+
+Task: A dataclass for individual pet care tasks, including details like title, duration, priority, and status, with methods to calculate a priority-based score, mark tasks as complete, check for overdue status, and estimate completion time.
+
+ScheduledItem: A dataclass linking a task to a specific time slot, assigned owner, and optional notes, with methods to calculate duration, detect scheduling overlaps, and convert to a dictionary for display.
+
+Owner: A class managing the pet owner's profile (name, email, preferences), their list of pets, and methods to add/remove pets, check ownership, and determine daily time availability based on preferences.
+
+Scheduler: A class responsible for coordinating pet care planning, maintaining lists of tasks and pets for an owner, and providing methods to add/remove tasks, build priority-sorted daily schedules, score individual tasks, explain the generated plan, identify conflicts, and clear schedules.
+
 - What classes did you include, and what responsibilities did you assign to each?
 
 **b. Design changes**
 
 - Did your design change during implementation?
+Yes, the design was refined to better incorporate constraints and preferences. Specifically, Task.compute_score was updated to factor in due_time proximity (adding a bonus for tasks due soon), and Scheduler.build_daily_schedule was modified to prevent scheduling overlapping tasks for the same pet, ensuring pets aren't double-booked.
 - If yes, describe at least one change and why you made it.
 
 ---

@@ -47,8 +47,13 @@ class Task:
     def compute_score(self) -> float:
         priority_scores = {"low": 1, "medium": 2, "high": 3}
         score = priority_scores.get(self.priority, 1)
-        if self.is_overdue(datetime.now()):
+        now = datetime.now()
+        if self.is_overdue(now):
             score += 1
+        if self.due_time:
+            hours_until_due = (self.due_time - now).total_seconds() / 3600
+            if hours_until_due > 0:
+                score += max(0, 10 - hours_until_due)  # bonus for tasks due soon
         return score
 
     def mark_complete(self) -> None:
@@ -136,10 +141,19 @@ class Scheduler:
                 continue
             if task.duration_minutes > available_minutes:
                 continue
-            end_time = current_time + timedelta(minutes=task.duration_minutes)
-            item = ScheduledItem(task, current_time, end_time, self.owner)
+            proposed_start = current_time
+            proposed_end = proposed_start + timedelta(minutes=task.duration_minutes)
+            # Check for pet overlap: ensure no other task for the same pet overlaps
+            conflict = any(
+                item for item in schedule
+                if item.task.pet == task.pet and
+                not (item.end_time <= proposed_start or item.start_time >= proposed_end)
+            )
+            if conflict:
+                continue  # skip this task to avoid pet overlap
+            item = ScheduledItem(task, proposed_start, proposed_end, self.owner)
             schedule.append(item)
-            current_time = end_time
+            current_time = proposed_end
             available_minutes -= task.duration_minutes
         self.schedule = schedule
         return schedule
